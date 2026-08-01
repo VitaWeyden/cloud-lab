@@ -21,6 +21,7 @@ spec:
       containers:
         - name: violetboard-web
           image: ghcr.io/vitaweyden/violet-board-web:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 80
 

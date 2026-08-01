@@ -10,14 +10,17 @@ resource "kubernetes_persistent_volume_claim_v1" "violetboard_db" {
     name      = "violetboard-db-pvc"
     namespace = "violetboard"
   }
+
   spec {
     access_modes = ["ReadWriteOnce"]
+
     resources {
       requests = {
         storage = "1Gi"
       }
     }
   }
+
   depends_on = [kubernetes_namespace.this]
 }
 
@@ -26,19 +29,23 @@ resource "kubernetes_deployment_v1" "violetboard_db" {
     name      = "violetboard-db"
     namespace = "violetboard"
   }
+
   spec {
     replicas = 1
+
     selector {
       match_labels = {
         app = "violetboard-db"
       }
     }
+
     template {
       metadata {
         labels = {
           app = "violetboard-db"
         }
       }
+
       spec {
         container {
           name  = "violetboard-db"
@@ -52,12 +59,15 @@ resource "kubernetes_deployment_v1" "violetboard_db" {
             name  = "POSTGRES_DB"
             value = "violetboard"
           }
+
           env {
             name  = "POSTGRES_USER"
             value = "postgres"
           }
+
           env {
             name = "POSTGRES_PASSWORD"
+
             value_from {
               secret_key_ref {
                 name = kubernetes_secret.violetboard.metadata[0].name
@@ -75,13 +85,16 @@ resource "kubernetes_deployment_v1" "violetboard_db" {
             exec {
               command = ["pg_isready", "-U", "postgres"]
             }
+
             initial_delay_seconds = 5
             period_seconds        = 5
           }
+
           liveness_probe {
             exec {
               command = ["pg_isready", "-U", "postgres"]
             }
+
             initial_delay_seconds = 10
             period_seconds        = 10
           }
@@ -89,6 +102,7 @@ resource "kubernetes_deployment_v1" "violetboard_db" {
 
         volume {
           name = "pgdata"
+
           persistent_volume_claim {
             claim_name = kubernetes_persistent_volume_claim_v1.violetboard_db.metadata[0].name
           }
@@ -105,15 +119,18 @@ resource "kubernetes_service_v1" "violetboard_db" {
     name      = "violetboard-db"
     namespace = "violetboard"
   }
+
   spec {
     selector = {
       app = "violetboard-db"
     }
+
     port {
       port        = 5432
       target_port = 5432
     }
   }
+
   depends_on = [kubernetes_namespace.this]
 }
 
@@ -126,14 +143,17 @@ resource "kubernetes_persistent_volume_claim_v1" "violetboard_seeded" {
     name      = "violetboard-seeded-pvc"
     namespace = "violetboard"
   }
+
   spec {
     access_modes = ["ReadWriteOnce"]
+
     resources {
       requests = {
         storage = "1Mi"
       }
     }
   }
+
   depends_on = [kubernetes_namespace.this]
 }
 
@@ -142,19 +162,23 @@ resource "kubernetes_deployment_v1" "violetboard_app" {
     name      = "violetboard-app"
     namespace = "violetboard"
   }
+
   spec {
     replicas = 1
+
     selector {
       match_labels = {
         app = "violetboard-app"
       }
     }
+
     template {
       metadata {
         labels = {
           app = "violetboard-app"
         }
       }
+
       spec {
         init_container {
           name    = "wait-for-db"
@@ -163,8 +187,9 @@ resource "kubernetes_deployment_v1" "violetboard_app" {
         }
 
         container {
-          name  = "violetboard-app"
-          image = "ghcr.io/vitaweyden/violet-board-app:latest"
+          name              = "violetboard-app"
+          image             = "ghcr.io/vitaweyden/violet-board-app:latest"
+          image_pull_policy = "Always"
 
           port {
             container_port = 9000
@@ -174,32 +199,40 @@ resource "kubernetes_deployment_v1" "violetboard_app" {
             name  = "APP_ENV"
             value = "production"
           }
+
           env {
             name  = "APP_URL"
             value = "http://localhost:8110"
           }
+
           env {
             name  = "DB_CONNECTION"
             value = "pgsql"
           }
+
           env {
             name  = "DB_HOST"
             value = "violetboard-db"
           }
+
           env {
             name  = "DB_PORT"
             value = "5432"
           }
+
           env {
             name  = "DB_DATABASE"
             value = "violetboard"
           }
+
           env {
             name  = "DB_USERNAME"
             value = "postgres"
           }
+
           env {
             name = "DB_PASSWORD"
+
             value_from {
               secret_key_ref {
                 name = kubernetes_secret.violetboard.metadata[0].name
@@ -207,8 +240,10 @@ resource "kubernetes_deployment_v1" "violetboard_app" {
               }
             }
           }
+
           env {
             name = "APP_KEY"
+
             value_from {
               secret_key_ref {
                 name = kubernetes_secret.violetboard.metadata[0].name
@@ -225,6 +260,7 @@ resource "kubernetes_deployment_v1" "violetboard_app" {
 
         volume {
           name = "seed-marker"
+
           persistent_volume_claim {
             claim_name = kubernetes_persistent_volume_claim_v1.violetboard_seeded.metadata[0].name
           }
@@ -241,18 +277,21 @@ resource "kubernetes_deployment_v1" "violetboard_app" {
 
 resource "kubernetes_service_v1" "violetboard_app" {
   metadata {
-    name      = "app" # must stay "app" - matches fastcgi_pass in nginx.conf
+    name      = "app"
     namespace = "violetboard"
   }
+
   spec {
     selector = {
       app = "violetboard-app"
     }
+
     port {
       port        = 9000
       target_port = 9000
     }
   }
+
   depends_on = [kubernetes_namespace.this]
 }
 
@@ -263,23 +302,28 @@ resource "kubernetes_deployment_v1" "violetboard_web" {
     name      = "violetboard-web"
     namespace = "violetboard"
   }
+
   spec {
     replicas = 1
+
     selector {
       match_labels = {
         app = "violetboard-web"
       }
     }
+
     template {
       metadata {
         labels = {
           app = "violetboard-web"
         }
       }
+
       spec {
         container {
-          name  = "violetboard-web"
-          image = "ghcr.io/vitaweyden/violet-board-web:latest"
+          name              = "violetboard-web"
+          image             = "ghcr.io/vitaweyden/violet-board-web:latest"
+          image_pull_policy = "Always"
 
           port {
             container_port = 80
@@ -288,6 +332,7 @@ resource "kubernetes_deployment_v1" "violetboard_web" {
       }
     }
   }
+
   depends_on = [kubernetes_namespace.this]
 }
 
@@ -296,15 +341,19 @@ resource "kubernetes_service_v1" "violetboard_web" {
     name      = "violetboard-web"
     namespace = "violetboard"
   }
+
   spec {
-    type = "LoadBalancer" # k3d routes this via the cluster's --port 8110:8110@loadbalancer
+    type = "LoadBalancer"
+
     selector = {
       app = "violetboard-web"
     }
+
     port {
       port        = 8110
       target_port = 80
     }
   }
+
   depends_on = [kubernetes_namespace.this]
 }

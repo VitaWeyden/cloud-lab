@@ -39,6 +39,7 @@ spec:
       containers:
         - name: violetboard-app
           image: ghcr.io/vitaweyden/violet-board-app:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 9000
           env:

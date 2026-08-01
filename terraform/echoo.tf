@@ -10,14 +10,17 @@ resource "kubernetes_persistent_volume_claim_v1" "echoo_db" {
     name      = "echoo-db-pvc"
     namespace = "echoo"
   }
+
   spec {
     access_modes = ["ReadWriteOnce"]
+
     resources {
       requests = {
         storage = "1Gi"
       }
     }
   }
+
   depends_on = [kubernetes_namespace.this]
 }
 
@@ -26,19 +29,23 @@ resource "kubernetes_deployment_v1" "echoo_db" {
     name      = "echoo-db"
     namespace = "echoo"
   }
+
   spec {
     replicas = 1
+
     selector {
       match_labels = {
         app = "echoo-db"
       }
     }
+
     template {
       metadata {
         labels = {
           app = "echoo-db"
         }
       }
+
       spec {
         container {
           name  = "echoo-db"
@@ -52,12 +59,15 @@ resource "kubernetes_deployment_v1" "echoo_db" {
             name  = "POSTGRES_DB"
             value = "ECHOO"
           }
+
           env {
             name  = "POSTGRES_USER"
             value = "postgres"
           }
+
           env {
             name = "POSTGRES_PASSWORD"
+
             value_from {
               secret_key_ref {
                 name = kubernetes_secret.echoo.metadata[0].name
@@ -75,13 +85,16 @@ resource "kubernetes_deployment_v1" "echoo_db" {
             exec {
               command = ["pg_isready", "-U", "postgres"]
             }
+
             initial_delay_seconds = 5
             period_seconds        = 5
           }
+
           liveness_probe {
             exec {
               command = ["pg_isready", "-U", "postgres"]
             }
+
             initial_delay_seconds = 10
             period_seconds        = 10
           }
@@ -89,6 +102,7 @@ resource "kubernetes_deployment_v1" "echoo_db" {
 
         volume {
           name = "pgdata"
+
           persistent_volume_claim {
             claim_name = kubernetes_persistent_volume_claim_v1.echoo_db.metadata[0].name
           }
@@ -105,15 +119,18 @@ resource "kubernetes_service_v1" "echoo_db" {
     name      = "echoo-db"
     namespace = "echoo"
   }
+
   spec {
     selector = {
       app = "echoo-db"
     }
+
     port {
       port        = 5432
       target_port = 5432
     }
   }
+
   depends_on = [kubernetes_namespace.this]
 }
 
@@ -126,14 +143,17 @@ resource "kubernetes_persistent_volume_claim_v1" "echoo_seeded" {
     name      = "echoo-seeded-pvc"
     namespace = "echoo"
   }
+
   spec {
     access_modes = ["ReadWriteOnce"]
+
     resources {
       requests = {
         storage = "1Mi"
       }
     }
   }
+
   depends_on = [kubernetes_namespace.this]
 }
 
@@ -142,19 +162,23 @@ resource "kubernetes_deployment_v1" "echoo_backend" {
     name      = "echoo-backend"
     namespace = "echoo"
   }
+
   spec {
     replicas = 1
+
     selector {
       match_labels = {
         app = "echoo-backend"
       }
     }
+
     template {
       metadata {
         labels = {
           app = "echoo-backend"
         }
       }
+
       spec {
         init_container {
           name    = "wait-for-db"
@@ -163,8 +187,9 @@ resource "kubernetes_deployment_v1" "echoo_backend" {
         }
 
         container {
-          name  = "echoo-backend"
-          image = "ghcr.io/vitaweyden/echoo-backend:latest"
+          name              = "echoo-backend"
+          image             = "ghcr.io/vitaweyden/echoo-backend:latest"
+          image_pull_policy = "Always"
 
           port {
             container_port = 3333
@@ -174,36 +199,45 @@ resource "kubernetes_deployment_v1" "echoo_backend" {
             name  = "HOST"
             value = "0.0.0.0"
           }
+
           env {
             name  = "PORT"
             value = "3333"
           }
+
           env {
             name  = "NODE_ENV"
             value = "production"
           }
+
           env {
             name  = "LOG_LEVEL"
             value = "info"
           }
+
           env {
             name  = "DB_HOST"
             value = "echoo-db"
           }
+
           env {
             name  = "DB_PORT"
             value = "5432"
           }
+
           env {
             name  = "DB_USER"
             value = "postgres"
           }
+
           env {
             name  = "DB_DATABASE"
             value = "ECHOO"
           }
+
           env {
             name = "DB_PASSWORD"
+
             value_from {
               secret_key_ref {
                 name = kubernetes_secret.echoo.metadata[0].name
@@ -211,8 +245,10 @@ resource "kubernetes_deployment_v1" "echoo_backend" {
               }
             }
           }
+
           env {
             name = "APP_KEY"
+
             value_from {
               secret_key_ref {
                 name = kubernetes_secret.echoo.metadata[0].name
@@ -229,6 +265,7 @@ resource "kubernetes_deployment_v1" "echoo_backend" {
 
         volume {
           name = "seed-marker"
+
           persistent_volume_claim {
             claim_name = kubernetes_persistent_volume_claim_v1.echoo_seeded.metadata[0].name
           }
@@ -248,16 +285,20 @@ resource "kubernetes_service_v1" "echoo_backend" {
     name      = "echoo-backend"
     namespace = "echoo"
   }
+
   spec {
-    type = "LoadBalancer" # k3d routes this via the cluster's --port 3344:3344@loadbalancer
+    type = "LoadBalancer"
+
     selector = {
       app = "echoo-backend"
     }
+
     port {
       port        = 3344
       target_port = 3333
     }
   }
+
   depends_on = [kubernetes_namespace.this]
 }
 
@@ -268,23 +309,28 @@ resource "kubernetes_deployment_v1" "echoo_frontend" {
     name      = "echoo-frontend"
     namespace = "echoo"
   }
+
   spec {
     replicas = 1
+
     selector {
       match_labels = {
         app = "echoo-frontend"
       }
     }
+
     template {
       metadata {
         labels = {
           app = "echoo-frontend"
         }
       }
+
       spec {
         container {
-          name  = "echoo-frontend"
-          image = "ghcr.io/vitaweyden/echoo-frontend:latest"
+          name              = "echoo-frontend"
+          image             = "ghcr.io/vitaweyden/echoo-frontend:latest"
+          image_pull_policy = "Always"
 
           port {
             container_port = 80
@@ -293,6 +339,7 @@ resource "kubernetes_deployment_v1" "echoo_frontend" {
       }
     }
   }
+
   depends_on = [kubernetes_namespace.this]
 }
 
@@ -301,15 +348,19 @@ resource "kubernetes_service_v1" "echoo_frontend" {
     name      = "echoo-frontend"
     namespace = "echoo"
   }
+
   spec {
-    type = "LoadBalancer" # k3d routes this via the cluster's --port 8111:8111@loadbalancer
+    type = "LoadBalancer"
+
     selector = {
       app = "echoo-frontend"
     }
+
     port {
       port        = 8111
       target_port = 80
     }
   }
+
   depends_on = [kubernetes_namespace.this]
 }

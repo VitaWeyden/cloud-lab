@@ -39,6 +39,7 @@ spec:
       containers:
         - name: echoo-backend
           image: ghcr.io/vitaweyden/echoo-backend:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 3333
           env:

@@ -19,6 +19,7 @@ spec:
       containers:
         - name: echoo-frontend
           image: ghcr.io/vitaweyden/echoo-frontend:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 80
 

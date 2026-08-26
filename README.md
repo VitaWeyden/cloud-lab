@@ -1,4 +1,4 @@
-# cloud-engineering-lab
+# cloud-lab
 
 > Cloud-native infrastructure lab: Docker, CI/CD, Kubernetes, Terraform
 
@@ -81,7 +81,7 @@ GitHub Container Registry (GHCR)
 ## Repository Structure
 
 ```text
-cloud-engineering-lab/
+cloud-lab/
 │
 ├── compose/                        # Docker Compose orchestration
 │   ├── docker-compose.yml
@@ -140,8 +140,8 @@ The simplest local option. Kubernetes is not required.
 ### Run
 
 ```bash
-git clone https://github.com/VitaWeyden/cloud-engineering-lab.git
-cd cloud-engineering-lab
+git clone https://github.com/VitaWeyden/cloud-lab.git
+cd cloud-lab
 python compose/start.py
 ```
 
@@ -218,8 +218,8 @@ A production-like local setup using K3s inside Docker through k3d.
 ### Run
 
 ```bash
-git clone https://github.com/VitaWeyden/cloud-engineering-lab.git
-cd cloud-engineering-lab
+git clone https://github.com/VitaWeyden/cloud-lab.git
+cd cloud-lab
 python kubernetes/setup.py
 ```
 
@@ -272,19 +272,19 @@ kubectl rollout status deployment/echoo-frontend -n echoo
 ### Stop the cluster and keep data
 
 ```bash
-k3d cluster stop cloud-engineering-lab
+k3d cluster stop cloud-lab
 ```
 
 ### Start the cluster again
 
 ```bash
-k3d cluster start cloud-engineering-lab
+k3d cluster start cloud-lab
 ```
 
 ### Delete the cluster and all data
 
 ```bash
-k3d cluster delete cloud-engineering-lab
+k3d cluster delete cloud-lab
 ```
 
 ### Kubernetes design notes

@@ -194,11 +194,11 @@ def create_dashboard_configmap(script_dir):
 def main():
     print()
     print(f"{CYAN}{'─' * 50}")
-    print(f"  cloud-engineering-lab – Kubernetes setup")
+    print(f"  cloud-lab – Kubernetes setup")
     print(f"{'─' * 50}{RESET}")
     print()
 
-    cluster_name = "cloud-engineering-lab"
+    cluster_name = "cloud-lab"
     script_dir = os.path.dirname(os.path.abspath(__file__))
     repo_root = os.path.dirname(script_dir)
     compose_dir = os.path.join(repo_root, "compose")
@@ -277,8 +277,8 @@ def main():
     print(f"  {GREEN}Prometheus:{RESET}    http://localhost:9099")
     print()
     print(f"  {YELLOW}Check pods:{RESET}  kubectl get pods --all-namespaces")
-    print(f"  {YELLOW}Stop:{RESET}        k3d cluster stop cloud-engineering-lab")
-    print(f"  {YELLOW}Delete:{RESET}      k3d cluster delete cloud-engineering-lab")
+    print(f"  {YELLOW}Stop:{RESET}        k3d cluster stop cloud-lab")
+    print(f"  {YELLOW}Delete:{RESET}      k3d cluster delete cloud-lab")
     print()
 
 if __name__ == "__main__":

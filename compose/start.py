@@ -102,7 +102,7 @@ def setup_env(env_file, example_file, app_name, key_generator=None):
 def main():
     print()
     print(f"{CYAN}{'─' * 50}")
-    print(f"  cloud-engineering-lab – setup & start")
+    print(f"  cloud-lab – setup & start")
     print(f"{'─' * 50}{RESET}")
     print()
 

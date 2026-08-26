@@ -4,7 +4,7 @@ Issues hit while building and testing the Terraform path (`terraform/`), and wha
 
 ## 1. Kubernetes provider can't connect on a brand-new cluster
 
-**Symptom:** `terraform apply` fails with `context "k3d-cloud-engineering-lab" does not exist`, even though the plan shows the cluster will be created.
+**Symptom:** `terraform apply` fails with `context "k3d-cloud-lab" does not exist`, even though the plan shows the cluster will be created.
 
 **Cause:** Terraform configures all providers before running any resource, regardless of `depends_on`. The Kubernetes provider tries to read the kubeconfig context immediately - but that context only gets created by the `null_resource.k3d_cluster` provisioner, which hasn't run yet.
 

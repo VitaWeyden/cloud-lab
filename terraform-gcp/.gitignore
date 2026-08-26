@@ -1,0 +1,13 @@
+# Contains secrets (passwords, keys, and now the SSH private key + the
+# fetched kubeconfig) in plain text - never commit these.
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+*.tfvars
+!*.tfvars.example
+gcp-ssh-key.pem
+kubeconfig-gcp.yaml
+
+crash.log
+crash.*.log

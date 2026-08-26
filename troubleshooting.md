@@ -35,7 +35,7 @@ Not needed once the cluster already exists.
 
 **Symptom:** all Grafana dashboards empty, no errors visible in the UI.
 
-**Cause:** the Prometheus `Service`'s `port` field is used both for the external LoadBalancer port and for in-cluster DNS access. After changing it (to avoid a host-port clash with the Compose stack), the Grafana datasource ConfigMap still pointed at the old internal port (`http://prometheus:9090` instead of `:9099`).
+**Cause:** the Prometheus `Service`'s `port` field is used both for the external LoadBalancer port and for in-cluster DNS access. After changing it (at the time, to avoid a host-port clash with Docker Compose's own Prometheus - Compose no longer runs a monitoring stack, see the root README), the Grafana datasource ConfigMap still pointed at the old internal port (`http://prometheus:9090` instead of `:9099`).
 
 **Fix:** update the datasource URL to match the current Service port, in both `kubernetes/monitoring/grafana.yaml` and `terraform/monitoring.tf`. Changing a ConfigMap doesn't restart the Pod that reads it - needs `kubectl rollout restart deployment/grafana -n monitoring` afterward.
 

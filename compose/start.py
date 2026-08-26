@@ -55,10 +55,8 @@ def is_env_complete(env_file, required_keys):
                 return False
     return True
 
-def setup_env(env_file, example_file, app_name, key_generator=None):
-    required = ["POSTGRES_PASSWORD"] if key_generator else ["GRAFANA_PASSWORD"]
-    if key_generator:
-        required.append("APP_KEY")
+def setup_env(env_file, example_file, app_name, key_generator):
+    required = ["POSTGRES_PASSWORD", "APP_KEY"]
 
     if is_env_complete(env_file, required):
         success(f"{env_file} already exists and is complete, skipping")
@@ -73,9 +71,8 @@ def setup_env(env_file, example_file, app_name, key_generator=None):
     with open(example_file) as f:
         lines = f.readlines()
 
-    app_key = key_generator() if key_generator else None
-    if app_key:
-        info("APP_KEY generated automatically")
+    app_key = key_generator()
+    info("APP_KEY generated automatically")
 
     password = input(f"{CYAN}[?]{RESET} Enter a password for {app_name}: ").strip()
     if not password:
@@ -91,7 +88,7 @@ def setup_env(env_file, example_file, app_name, key_generator=None):
             key = stripped.split("=")[0].strip()
             if key == "APP_KEY" and app_key:
                 f.write(f"APP_KEY={app_key}\n")
-            elif key in ("DB_PASSWORD", "POSTGRES_PASSWORD", "GRAFANA_PASSWORD"):
+            elif key in ("DB_PASSWORD", "POSTGRES_PASSWORD"):
                 f.write(f"{key}={password}\n")
             else:
                 f.write(line)
@@ -143,17 +140,7 @@ def main():
         sys.exit(1)
     print()
 
-    # 4. Monitoring env
-    info("Setting up Monitoring environment...")
-    if not setup_env(
-        env_file="monitoring.env",
-        example_file="monitoring.env.example",
-        app_name="Grafana",
-    ):
-        sys.exit(1)
-    print()
-
-    # 5. Pull latest images and start
+    # 4. Pull latest images and start
     info("Pulling latest images from GHCR...")
     run("docker compose pull")
     print()
@@ -169,8 +156,6 @@ def main():
     print()
     print(f"  {GREEN}Violet-board:{RESET}  http://localhost:8100")
     print(f"  {GREEN}Echoo:{RESET}         http://localhost:8101")
-    print(f"  {GREEN}Grafana:{RESET}       http://localhost:3000")
-    print(f"  {GREEN}Prometheus:{RESET}    http://localhost:9090")
     print()
     print(f"  {YELLOW}Logs:{RESET}   docker compose logs -f")
     print(f"  {YELLOW}Stop:{RESET}   docker compose down")

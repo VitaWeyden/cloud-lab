@@ -137,21 +137,15 @@ def create_secret_with_key(secret_name, namespace, app_name, key_generator, env_
     success(f"Secret '{secret_name}' created")
     return True
 
-def create_secret_password_only(secret_name, namespace, app_name, key_name, env_file_path, env_key):
+def create_secret_password_only(secret_name, namespace, app_name, key_name):
     if secret_exists(secret_name, namespace):
         success(f"Secret '{secret_name}' already exists in '{namespace}', skipping")
         return True
 
-    env_values = read_env_file(env_file_path)
-    password = env_values.get(env_key, "").strip()
-
-    if password:
-        success(f"Found existing password in {env_file_path}, reusing it")
-    else:
-        password = input(f"{CYAN}[?]{RESET} Enter a password for {app_name}: ").strip()
-        if not password:
-            error("Password cannot be empty")
-            return False
+    password = input(f"{CYAN}[?]{RESET} Enter a password for {app_name}: ").strip()
+    if not password:
+        error("Password cannot be empty")
+        return False
 
     args = [
         "kubectl", "create", "secret", "generic", secret_name,
@@ -246,8 +240,6 @@ def main():
         namespace="monitoring",
         app_name="Grafana",
         key_name="GRAFANA_PASSWORD",
-        env_file_path=os.path.join(compose_dir, "monitoring.env"),
-        env_key="GRAFANA_PASSWORD",
     ):
         sys.exit(1)
     print()

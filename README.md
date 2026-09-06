@@ -32,6 +32,26 @@ Terraform        → the same Kubernetes + monitoring setup, declared as code
 
 Monitoring is intentionally **not** part of the Docker Compose setup — it's introduced starting at the Kubernetes layer, since Prometheus/Grafana/kube-state-metrics are a more natural fit once there's an orchestrator to observe.
 
+## CI/CD pipeline
+
+The CI/CD pipeline itself lives in the two application repositories, not here — [Violet-board](https://github.com/VitaWeyden/Violet-board) and [Echoo](https://github.com/VitaWeyden/Echoo) each have their own GitHub Actions workflow.
+
+**What's automated (CI):** on every push to `main`, GitHub Actions builds a Docker image for each application component and pushes it to GHCR tagged `latest` — no manual build or push step anywhere.
+
+**What's not automated (CD) outside the GCP layer:** Compose, Kubernetes (local k3d), and local Terraform all still need a manual pull + restart:
+
+```bash
+# Docker Compose
+docker compose pull && docker compose up -d
+
+# Kubernetes / Terraform (kubectl works against both)
+kubectl rollout restart deployment/violetboard-app -n violetboard
+```
+
+See each approach's own README for the exact commands.
+
+**The exception is the [Google Cloud layer](./terraform-gcp/README.md#automatic-redeployment):** it runs [Keel](https://keel.sh), which polls GHCR and automatically redeploys the moment a new image is pushed — no manual step needed there.
+
 ## Documentation
 
 Each approach has its own dedicated README with full setup instructions, ports, and design notes:
@@ -93,6 +113,7 @@ GitHub Container Registry (GHCR)
 | Containerization | Docker |
 | Orchestration | Docker Compose / Kubernetes (K3s) |
 | CI/CD | GitHub Actions |
+| Automatic redeployment (GCP only) | Keel |
 | Image Registry | GitHub Container Registry (GHCR) |
 | Web Server | Nginx |
 | Database | PostgreSQL |

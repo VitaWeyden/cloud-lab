@@ -138,6 +138,11 @@ resource "kubernetes_deployment_v1" "violetboard_app" {
   metadata {
     name      = "violetboard-app"
     namespace = "violetboard"
+    annotations = {
+      "keel.sh/policy"       = "force"
+      "keel.sh/trigger"      = "poll"
+      "keel.sh/pollSchedule" = "@every 3m"
+    }
   }
   spec {
     replicas = 1
@@ -259,6 +264,11 @@ resource "kubernetes_deployment_v1" "violetboard_web" {
   metadata {
     name      = "violetboard-web"
     namespace = "violetboard"
+    annotations = {
+      "keel.sh/policy"       = "force"
+      "keel.sh/trigger"      = "poll"
+      "keel.sh/pollSchedule" = "@every 3m"
+    }
   }
   spec {
     replicas = 1

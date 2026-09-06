@@ -138,6 +138,11 @@ resource "kubernetes_deployment_v1" "echoo_backend" {
   metadata {
     name      = "echoo-backend"
     namespace = "echoo"
+    annotations = {
+      "keel.sh/policy"       = "force"
+      "keel.sh/trigger"      = "poll"
+      "keel.sh/pollSchedule" = "@every 3m"
+    }
   }
   spec {
     replicas = 1
@@ -264,6 +269,11 @@ resource "kubernetes_deployment_v1" "echoo_frontend" {
   metadata {
     name      = "echoo-frontend"
     namespace = "echoo"
+    annotations = {
+      "keel.sh/policy"       = "force"
+      "keel.sh/trigger"      = "poll"
+      "keel.sh/pollSchedule" = "@every 3m"
+    }
   }
   spec {
     replicas = 1

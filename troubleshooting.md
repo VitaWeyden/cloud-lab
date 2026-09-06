@@ -1,6 +1,6 @@
 # Troubleshooting & Lessons Learned
 
-Issues hit while building and testing the Terraform path (`terraform/`), and what caused them. Kept here because they're useful DevOps/Kubernetes lessons on their own, not just bugs to forget about.
+Real issues hit while building and testing this project, and what caused them. Kept here because they're useful DevOps/Kubernetes lessons on their own, not just bugs to forget about.
 
 ## 1. Kubernetes provider can't connect on a brand-new cluster
 
@@ -77,3 +77,38 @@ terraform state rm kubernetes_deployment_v1.<name>
 terraform import kubernetes_deployment_v1.<name> <namespace>/<name>
 ```
 This only touches Terraform's bookkeeping - the actual Deployment in the cluster is untouched.
+
+## 8. Docker Compose: app container stuck `Restarting`, `password authentication failed`
+
+**Symptom:** after running `compose/start.py`, `docker compose ps` shows an app container (e.g. `violetboard-app`) endlessly `Restarting`. `docker compose logs` shows a Laravel/AdonisJS migration failing with something like:
+```
+SQLSTATE[08006] ... FATAL: password authentication failed for user "postgres"
+```
+
+**Cause:** PostgreSQL only applies `POSTGRES_PASSWORD` the *first* time it initializes an empty data directory. If `violetboard.env`/`echoo.env` gets deleted and regenerated (e.g. by re-running `start.py` after removing the `.env` files, without also removing the Docker volumes), the script asks for and writes a brand-new password - but the `*-pgdata` volume from the earlier run still exists, still containing Postgres initialized with the *old* password. The app connects with the new one and fails.
+
+**Fix:**
+```bash
+docker compose down -v --remove-orphans
+python compose/start.py
+```
+`-v` drops the Postgres volumes so they get freshly initialized with the new password. `--remove-orphans` also cleans up any containers left over from a since-changed `docker-compose.yml` (for example, from before monitoring was removed from this file - see the root README).
+
+**Now handled proactively:** `compose/start.py` checks for a matching Docker volume whenever an `.env` file needs to be (re)created, and asks:
+1. **Keep it as is** - you still know the existing password, just type it in. Nothing is touched.
+2. **Keep the data, but set a new password.** No need to know the old one: `docker compose exec` reaches the container's local unix socket, which the official Postgres image trusts without a password, so the script runs `ALTER USER postgres WITH PASSWORD ...` directly. Nothing is deleted.
+3. **Start fresh.** Removes only the affected application's database container and its volume(s) (e.g. just `violetboard-db` and its `-pgdata`/`-seeded` volumes) - not the app container, and never the other application - then asks for a brand-new password. The app container is left alone: it either gets recreated automatically by `docker compose up -d` once it detects the changed `.env`, or if it was already crash-looping on the old password, its `restart: unless-stopped` policy retries it as soon as the database is healthy again.
+
+No more discovering this via a crash loop, and no more needing to remember a password from months ago.
+
+## 9. The same bug class in `kubernetes/setup.py` - and a sneakier variant of it
+
+**Symptom:** same as #8, but with a `Secret` and a `PersistentVolumeClaim` instead of an `.env` file and a Docker volume - a database Pod stuck in `CrashLoopBackOff` with a Postgres authentication error, or a `CreateContainerConfigError` if the Secret is missing entirely.
+
+**Cause:** a `Secret` and the `PVC` holding the actual Postgres data are two independently-persisted objects, exactly like an `.env` file and a Docker volume. `create_secret_with_key()` only checked `secret_exists()` before generating/reusing a password - if a Secret was deleted (e.g. `kubectl delete secret violetboard-secret -n violetboard`) while its PVC survived, a fresh Secret got created with a password that doesn't match what's already initialized on disk.
+
+There was also a **sneakier** variant: the function's fallback tries to reuse credentials from the local Compose `.env` file. If that Compose password had since been rotated (for example, via the fix in #8) while the Kubernetes PVC was initialized with the *old* one, the script would print a confident `Found existing credentials ... reusing them` and silently write the *wrong* password into the new Secret - no warning at all until the Pod started crash-looping.
+
+A second, less obvious issue: even after fixing the Secret, Kubernetes only resolves `secretKeyRef` values when a Pod is first created - an already-running (or already crash-looping) application Pod does **not** pick up a Secret change on its own. It needs an explicit `kubectl rollout restart`.
+
+**Fix (now handled proactively):** `create_secret_with_key()` now checks `pvc_exists()` before trusting any password source - reused-from-Compose or freshly typed - and offers the same three options as #8: keep the known password, reset it in place via `kubectl exec deploy/<db> -- psql -U postgres -c "ALTER USER ..."` (works without knowing the old one, since `kubectl exec` reaches the Pod directly rather than over the network), or delete just that app's database Deployment + PVC and start over. All three paths finish with a `kubectl rollout restart` of the *application* Deployment, so it always ends up with a fresh Pod referencing the current Secret value - never a stale one baked in from before.

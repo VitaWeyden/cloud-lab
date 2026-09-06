@@ -88,6 +88,70 @@ def generate_violetboard_key():
 def generate_echoo_key():
     return base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()
 
+def pvc_exists(name, namespace):
+    result = run(["kubectl", "get", "pvc", name, "--namespace", namespace], capture_output=True)
+    return result.returncode == 0
+
+def deployment_exists(name, namespace):
+    result = run(["kubectl", "get", "deployment", name, "--namespace", namespace], capture_output=True)
+    return result.returncode == 0
+
+def wait_for_pod_ready(app_label, namespace, timeout_seconds=60):
+    result = run([
+        "kubectl", "wait", "pod",
+        "--for=condition=ready",
+        "--selector", f"app={app_label}",
+        "--namespace", namespace,
+        f"--timeout={timeout_seconds}s",
+    ], capture_output=True)
+    return result.returncode == 0
+
+def reset_postgres_password(db_deployment, db_manifest_path, namespace, new_password):
+    # `kubectl exec` reaches the pod directly, the same way `docker compose
+    # exec` does for the Compose setup - and the official postgres image
+    # trusts local (unix socket) connections regardless of POSTGRES_PASSWORD,
+    # so this works even without knowing the password currently in use.
+    # Requires the Secret to already exist with the new password (the caller
+    # creates/updates it before calling this).
+    info(f"Making sure {db_deployment} is running so its password can be reset...")
+    result = run(["kubectl", "apply", "-f", db_manifest_path], capture_output=True)
+    if result.returncode != 0:
+        error(f"Failed to apply {db_manifest_path}")
+        return False
+
+    if not wait_for_pod_ready(db_deployment, namespace, timeout_seconds=60):
+        error(f"{db_deployment} did not become ready in time")
+        return False
+
+    escaped = new_password.replace("'", "''")
+    sql = f"ALTER USER postgres WITH PASSWORD '{escaped}';"
+    result = run(
+        ["kubectl", "exec", f"deploy/{db_deployment}", "--namespace", namespace, "--", "psql", "-U", "postgres"],
+        input=sql,
+        text=True,
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+def delete_pvc_and_db(db_deployment, pvc_name, namespace):
+    # Scoped to exactly this app's database - the application Deployment and
+    # the other application's namespace are never touched. If the app
+    # Deployment is currently crash-looping on the old password, it'll pick
+    # up the new one on its own next restart once the fresh secret exists.
+    if deployment_exists(db_deployment, namespace):
+        info(f"Deleting deployment '{db_deployment}' in '{namespace}'...")
+        run(["kubectl", "delete", "deployment", db_deployment, "--namespace", namespace])
+    if pvc_exists(pvc_name, namespace):
+        info(f"Deleting PVC '{pvc_name}' in '{namespace}'...")
+        result = run(["kubectl", "delete", "pvc", pvc_name, "--namespace", namespace])
+        if result.returncode != 0:
+            return False
+    return True
+
+def restart_deployment_if_exists(name, namespace):
+    if deployment_exists(name, namespace):
+        run(["kubectl", "rollout", "restart", f"deployment/{name}", "--namespace", namespace])
+
 def read_env_file(path):
     """Reads a simple KEY=VALUE .env file into a dict. Returns {} if not found."""
     values = {}
@@ -102,28 +166,7 @@ def read_env_file(path):
             values[key.strip()] = value.strip()
     return values
 
-def create_secret_with_key(secret_name, namespace, app_name, key_generator, env_file_path):
-    if secret_exists(secret_name, namespace):
-        success(f"Secret '{secret_name}' already exists in '{namespace}', skipping")
-        return True
-
-    env_values = read_env_file(env_file_path)
-    password = env_values.get("DB_PASSWORD", "").strip()
-    app_key = env_values.get("APP_KEY", "").strip()
-
-    if password and app_key:
-        success(f"Found existing credentials in {env_file_path}, reusing them")
-    else:
-        warn(f"{env_file_path} not found or incomplete – asking for new credentials")
-        if not app_key:
-            app_key = key_generator()
-            info("APP_KEY generated automatically")
-        if not password:
-            password = input(f"{CYAN}[?]{RESET} Enter a PostgreSQL password for {app_name}: ").strip()
-            if not password:
-                error("Password cannot be empty")
-                return False
-
+def _create_secret_object(secret_name, namespace, password, app_key):
     args = [
         "kubectl", "create", "secret", "generic", secret_name,
         "--namespace", namespace,
@@ -136,6 +179,98 @@ def create_secret_with_key(secret_name, namespace, app_name, key_generator, env_
         return False
     success(f"Secret '{secret_name}' created")
     return True
+
+def create_secret_with_key(secret_name, namespace, app_name, key_generator, env_file_path,
+                            db_deployment, db_manifest_path, pvc_name, app_deployment):
+    if secret_exists(secret_name, namespace):
+        success(f"Secret '{secret_name}' already exists in '{namespace}', skipping")
+        return True
+
+    env_values = read_env_file(env_file_path)
+    app_key = env_values.get("APP_KEY", "").strip()
+    if not app_key:
+        app_key = key_generator()
+        info("APP_KEY generated automatically")
+
+    # A PVC is a separate, independently-persisted object from the Secret -
+    # exactly like a Docker volume is separate from a Compose .env file. If
+    # one already has real Postgres data in it, whatever password ends up in
+    # a freshly created Secret needs to actually match it (or the PVC needs
+    # to go) - otherwise the DB pod ends up in CrashLoopBackOff the same way
+    # a Compose container would keep restarting on a bad password.
+    #
+    # Also, unlike Compose (which recreates a container whenever its env_file
+    # content changes), Kubernetes only resolves `secretKeyRef` values when a
+    # Pod is first created - an already-running app Pod won't pick up a
+    # newly-created or updated Secret on its own. Every branch below that
+    # touches the Secret restarts the app Deployment as a result, so it
+    # always ends up with a fresh Pod referencing the current Secret value.
+    if not pvc_exists(pvc_name, namespace):
+        password = env_values.get("DB_PASSWORD", "").strip()
+        if password:
+            success(f"Found existing credentials in {env_file_path}, reusing them")
+        else:
+            password = input(f"{CYAN}[?]{RESET} Enter a PostgreSQL password for {app_name}: ").strip()
+            if not password:
+                error("Password cannot be empty")
+                return False
+        if not _create_secret_object(secret_name, namespace, password, app_key):
+            return False
+        restart_deployment_if_exists(app_deployment, namespace)
+        return True
+
+    warn(f"{app_name}'s database already has data from a previous run (PVC '{pvc_name}' exists).")
+    print()
+    print(f"  {CYAN}[1]{RESET} Keep it as is - I still know the existing password, just use it")
+    print(f"  {CYAN}[2]{RESET} Keep the data, but set a new password (works even if you forgot the old one)")
+    print(f"  {CYAN}[3]{RESET} Start fresh - delete {app_name}'s database and PVC, use a brand-new password")
+    choice = input(f"{CYAN}[?]{RESET} Choice [1/2/3]: ").strip()
+
+    if choice == "1":
+        password = input(f"{CYAN}[?]{RESET} Enter the EXISTING password already used for {app_name}'s database: ").strip()
+        if not password:
+            error("Password cannot be empty")
+            return False
+        if not _create_secret_object(secret_name, namespace, password, app_key):
+            return False
+        restart_deployment_if_exists(app_deployment, namespace)
+        return True
+
+    elif choice == "2":
+        password = input(f"{CYAN}[?]{RESET} Enter a NEW password for {app_name}'s database: ").strip()
+        if not password:
+            error("Password cannot be empty")
+            return False
+        if not _create_secret_object(secret_name, namespace, password, app_key):
+            return False
+        if not reset_postgres_password(db_deployment, db_manifest_path, namespace, password):
+            error(f"Could not reset the password for {db_deployment}.")
+            error("You can try again, or pick option 3 to delete the PVC instead.")
+            return False
+        restart_deployment_if_exists(app_deployment, namespace)
+        success(f"{app_name}'s password was reset in place - existing data was kept")
+        return True
+
+    elif choice == "3":
+        # Only this app's database is touched here - not the application
+        # Deployment (beyond the restart below), and never the other
+        # application's namespace.
+        if not delete_pvc_and_db(db_deployment, pvc_name, namespace):
+            error("Failed to remove the old database/PVC - check the output above and retry.")
+            return False
+        success(f"{app_name}'s old database and PVC removed")
+        password = input(f"{CYAN}[?]{RESET} Enter a password for {app_name}: ").strip()
+        if not password:
+            error("Password cannot be empty")
+            return False
+        if not _create_secret_object(secret_name, namespace, password, app_key):
+            return False
+        restart_deployment_if_exists(app_deployment, namespace)
+        return True
+
+    else:
+        error("Invalid choice, expected 1, 2, or 3")
+        return False
 
 def create_secret_password_only(secret_name, namespace, app_name, key_name):
     if secret_exists(secret_name, namespace):
@@ -223,6 +358,10 @@ def main():
         app_name="Violet-board",
         key_generator=generate_violetboard_key,
         env_file_path=os.path.join(compose_dir, "violetboard.env"),
+        db_deployment="violetboard-db",
+        db_manifest_path=os.path.join(script_dir, "violetboard", "db.yaml"),
+        pvc_name="violetboard-db-pvc",
+        app_deployment="violetboard-app",
     ):
         sys.exit(1)
 
@@ -232,6 +371,10 @@ def main():
         app_name="Echoo",
         key_generator=generate_echoo_key,
         env_file_path=os.path.join(compose_dir, "echoo.env"),
+        db_deployment="echoo-db",
+        db_manifest_path=os.path.join(script_dir, "echoo", "db.yaml"),
+        pvc_name="echoo-db-pvc",
+        app_deployment="echoo-backend",
     ):
         sys.exit(1)
 

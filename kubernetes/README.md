@@ -88,6 +88,8 @@ k3d cluster delete cloud-lab
 
 **Secrets** – Passwords and application keys are stored as Kubernetes Secrets. The setup script can reuse credentials from the local Compose environment files for the two applications; the Grafana admin password has no Compose equivalent, so it's always asked for interactively.
 
+If a Secret is missing but its database's PVC already has data in it (e.g. the Secret was deleted separately, or the reused Compose password has since changed), the script won't guess - it asks whether to keep the existing password, reset it in place without needing to know the old one, or delete just that database and start fresh. See [TROUBLESHOOTING.md](../TROUBLESHOOTING.md) #9.
+
 **PersistentVolumeClaims** – The databases, seed markers, Prometheus, and Grafana use persistent storage.
 
 **Terraform** – The local [`terraform/`](../terraform/README.md) directory is an alternative, declarative way to manage the same k3d cluster. Do not run `kubernetes/setup.py` and `terraform apply` against the same cluster because both manage the same resources.

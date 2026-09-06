@@ -10,7 +10,7 @@ Unlike the other three approaches, this one is fully **independent** — it does
 - firewall rules (SSH, k3s API, application ports);
 - the same application and monitoring resources as the local Terraform setup;
 - persistent storage;
-- automatic application image updates;
+- **automatic application image updates** (see below — this is the one layer of the project where this is actually automatic, not manual);
 - an optional static IP;
 - cost-control safeguards.
 
@@ -39,13 +39,27 @@ project_id = "your-gcp-project-id-here"
 ## How it's meant to work
 
 1. `terraform apply` creates the VM (`vm.tf`) and firewall rules (`network.tf`). The VM installs k3s itself via a startup script on first boot.
-2. The Kubernetes provider (`poviders.tf`) needs a kubeconfig file that only exists *inside* the VM once k3s has finished installing — so a `null_resource` (`kubeconfig.tf`) SSHes in, waits for a `/tmp/k3s-ready` marker file, then copies the kubeconfig out and rewrites its address from `127.0.0.1` to the VM's public IP.
+2. The Kubernetes provider (`providers.tf`) needs a kubeconfig file that only exists *inside* the VM once k3s has finished installing — so a `null_resource` (`kubeconfig.tf`) SSHes in, waits for a `/tmp/k3s-ready` marker file, then copies the kubeconfig out and rewrites its address from `127.0.0.1` to the VM's public IP.
 3. Because of that chicken-and-egg dependency (same issue as the local Terraform setup, see [TROUBLESHOOTING.md](../TROUBLESHOOTING.md)), the first apply likely needs to be staged in two steps:
    ```bash
    terraform apply -target=google_compute_instance.k3s -target=null_resource.fetch_kubeconfig
    terraform apply
    ```
 4. Namespaces, Secrets, and application/monitoring resources (`namespaces.tf`, `secrets.tf`, `echoo.tf`, `violetboard.tf`, `monitoring.tf`) are then created the same way as in the local Terraform setup, just pointed at the GCP kubeconfig instead of the k3d one.
+
+## Automatic redeployment
+
+Unlike Compose, Kubernetes (local k3d), and local Terraform — where a new image pushed to GHCR needs a manual `docker compose pull` or `kubectl rollout restart` (see the root README's [CI/CD pipeline](../README.md#cicd-pipeline) section) — this layer redeploys automatically.
+
+`auto-deploy.tf` installs [Keel](https://keel.sh), a small Kubernetes-native operator, into its own `keel` namespace. The four application Deployments (`violetboard-app`, `violetboard-web`, `echoo-backend`, `echoo-frontend`) are annotated with `keel.sh/policy: force` and a poll trigger, so Keel checks GHCR every 3 minutes and rolls the Deployment as soon as the digest behind `latest` changes. The two Postgres Deployments are pinned to `postgres:15-alpine`, not `latest`, so they're intentionally left out of this.
+
+No changes to the application repos' own GitHub Actions workflows are needed — Keel polls GHCR directly, it doesn't need to be told a new image exists.
+
+Check Keel's own logs if a rollout isn't happening as expected:
+
+```bash
+kubectl logs -n keel deployment/keel -f
+```
 
 ## Outputs
 

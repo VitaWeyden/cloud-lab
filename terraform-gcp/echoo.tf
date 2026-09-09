@@ -139,7 +139,7 @@ resource "kubernetes_deployment_v1" "echoo_backend" {
     name      = "echoo-backend"
     namespace = "echoo"
     annotations = {
-      "keel.sh/policy"       = "force"
+      "keel.sh/policy"       = "minor"
       "keel.sh/trigger"      = "poll"
       "keel.sh/pollSchedule" = "@every 3m"
     }
@@ -166,7 +166,7 @@ resource "kubernetes_deployment_v1" "echoo_backend" {
 
         container {
           name  = "echoo-backend"
-          image = "ghcr.io/vitaweyden/echoo-backend:latest"
+          image = "ghcr.io/vitaweyden/echoo-backend:${local.echoo_backend_latest_tag}"
 
           port {
             container_port = 3333
@@ -183,6 +183,13 @@ resource "kubernetes_deployment_v1" "echoo_backend" {
           env {
             name  = "NODE_ENV"
             value = "production"
+          }
+          env {
+            # The public VM IP is not in any private (RFC 1918) range, so
+            # it wouldn't otherwise pass the app's default CORS whitelist -
+            # see backend/config/cors.ts and TROUBLESHOOTING.md #14.
+            name  = "ALLOWED_ORIGINS"
+            value = "http://${google_compute_instance.k3s.network_interface[0].access_config[0].nat_ip}:8111"
           }
           env {
             name  = "LOG_LEVEL"
@@ -239,6 +246,20 @@ resource "kubernetes_deployment_v1" "echoo_backend" {
     }
   }
 
+  # Once created, the image tag is Keel's responsibility, not Terraform's.
+  # Keel also writes a "keel.sh/update-time" timestamp into the pod
+  # template's own annotations every time it rolls out an update - without
+  # ignoring both, any future `terraform apply` (for an unrelated change,
+  # like the ALLOWED_ORIGINS env var above) would revert whatever version
+  # Keel has since rolled out, and strip out its update-tracking annotation.
+  # See TROUBLESHOOTING.md #15.
+  lifecycle {
+    ignore_changes = [
+      spec[0].template[0].spec[0].container[0].image,
+      spec[0].template[0].metadata[0].annotations,
+    ]
+  }
+
   depends_on = [
     kubernetes_secret.echoo,
     kubernetes_deployment_v1.echoo_db,
@@ -270,7 +291,7 @@ resource "kubernetes_deployment_v1" "echoo_frontend" {
     name      = "echoo-frontend"
     namespace = "echoo"
     annotations = {
-      "keel.sh/policy"       = "force"
+      "keel.sh/policy"       = "minor"
       "keel.sh/trigger"      = "poll"
       "keel.sh/pollSchedule" = "@every 3m"
     }
@@ -291,7 +312,7 @@ resource "kubernetes_deployment_v1" "echoo_frontend" {
       spec {
         container {
           name  = "echoo-frontend"
-          image = "ghcr.io/vitaweyden/echoo-frontend:latest"
+          image = "ghcr.io/vitaweyden/echoo-frontend:${local.echoo_frontend_latest_tag}"
 
           port {
             container_port = 80
@@ -300,6 +321,15 @@ resource "kubernetes_deployment_v1" "echoo_frontend" {
       }
     }
   }
+
+  # See the comment on echoo_backend's lifecycle block above.
+  lifecycle {
+    ignore_changes = [
+      spec[0].template[0].spec[0].container[0].image,
+      spec[0].template[0].metadata[0].annotations,
+    ]
+  }
+
   depends_on = [kubernetes_namespace.this]
 }
 

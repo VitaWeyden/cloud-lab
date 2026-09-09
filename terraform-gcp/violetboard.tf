@@ -139,7 +139,7 @@ resource "kubernetes_deployment_v1" "violetboard_app" {
     name      = "violetboard-app"
     namespace = "violetboard"
     annotations = {
-      "keel.sh/policy"       = "force"
+      "keel.sh/policy"       = "minor"
       "keel.sh/trigger"      = "poll"
       "keel.sh/pollSchedule" = "@every 3m"
     }
@@ -166,7 +166,7 @@ resource "kubernetes_deployment_v1" "violetboard_app" {
 
         container {
           name  = "violetboard-app"
-          image = "ghcr.io/vitaweyden/violet-board-app:latest"
+          image = "ghcr.io/vitaweyden/violet-board-app:${local.violetboard_app_latest_tag}"
 
           port {
             container_port = 9000
@@ -235,6 +235,19 @@ resource "kubernetes_deployment_v1" "violetboard_app" {
     }
   }
 
+  # Once created, the image tag is Keel's responsibility, not Terraform's.
+  # Keel also writes a "keel.sh/update-time" timestamp into the pod
+  # template's own annotations every time it rolls out an update - without
+  # ignoring both, any future `terraform apply` (for an unrelated change)
+  # would revert whatever version Keel has since rolled out, and strip out
+  # its update-tracking annotation. See TROUBLESHOOTING.md #15.
+  lifecycle {
+    ignore_changes = [
+      spec[0].template[0].spec[0].container[0].image,
+      spec[0].template[0].metadata[0].annotations,
+    ]
+  }
+
   depends_on = [
     kubernetes_secret.violetboard,
     kubernetes_deployment_v1.violetboard_db,
@@ -265,7 +278,7 @@ resource "kubernetes_deployment_v1" "violetboard_web" {
     name      = "violetboard-web"
     namespace = "violetboard"
     annotations = {
-      "keel.sh/policy"       = "force"
+      "keel.sh/policy"       = "minor"
       "keel.sh/trigger"      = "poll"
       "keel.sh/pollSchedule" = "@every 3m"
     }
@@ -286,7 +299,7 @@ resource "kubernetes_deployment_v1" "violetboard_web" {
       spec {
         container {
           name  = "violetboard-web"
-          image = "ghcr.io/vitaweyden/violet-board-web:latest"
+          image = "ghcr.io/vitaweyden/violet-board-web:${local.violetboard_web_latest_tag}"
 
           port {
             container_port = 80
@@ -295,6 +308,15 @@ resource "kubernetes_deployment_v1" "violetboard_web" {
       }
     }
   }
+
+  # See the comment on violetboard_app's lifecycle block above.
+  lifecycle {
+    ignore_changes = [
+      spec[0].template[0].spec[0].container[0].image,
+      spec[0].template[0].metadata[0].annotations,
+    ]
+  }
+
   depends_on = [kubernetes_namespace.this]
 }
 

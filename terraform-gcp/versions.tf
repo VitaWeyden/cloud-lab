@@ -37,5 +37,14 @@ terraform {
       source  = "hashicorp/null"
       version = "~> 3.2"
     }
+
+    # Used only to look up each image's currently-highest v0.0.X tag from
+    # GHCR at apply time, so a from-scratch destroy + apply always
+    # bootstraps onto the latest available version instead of whatever a
+    # variable default happens to say - see latest-tags.tf.
+    http = {
+      source  = "hashicorp/http"
+      version = "~> 3.4"
+    }
   }
 }

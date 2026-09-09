@@ -3,3 +3,17 @@
 # alone isn't very sensitive.
 
 project_id = "your-gcp-project-id-here"
+
+# Optional - only needed the first time you apply, or if you ever need to
+# manually pin a specific version again. After the first apply, Keel tracks
+# and applies newer v0.0.X tags on its own - see the "Automatic redeployment"
+# section below. Check each image's current tag at:
+#   https://github.com/VitaWeyden/Echoo/pkgs/container/echoo-backend
+#   https://github.com/VitaWeyden/Echoo/pkgs/container/echoo-frontend
+#   https://github.com/VitaWeyden/Violet-board/pkgs/container/violet-board-app
+#   https://github.com/VitaWeyden/Violet-board/pkgs/container/violet-board-web
+#
+# echoo_backend_tag     = "v0.0.9"
+# echoo_frontend_tag    = "v0.0.9"
+# violetboard_app_tag   = "v0.0.11"
+# violetboard_web_tag   = "v0.0.11"

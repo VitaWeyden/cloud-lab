@@ -71,7 +71,7 @@ Each approach has its own dedicated README with full setup instructions, ports, 
 - [x] Monitoring with Prometheus and Grafana
 - [x] Kubernetes with K3s via k3d
 - [x] Local Terraform deployment
-- [ ] Cloud deployment on Google Cloud
+- [x] Cloud deployment on Google Cloud
 
 ## Applications
 

@@ -112,3 +112,86 @@ There was also a **sneakier** variant: the function's fallback tries to reuse cr
 A second, less obvious issue: even after fixing the Secret, Kubernetes only resolves `secretKeyRef` values when a Pod is first created - an already-running (or already crash-looping) application Pod does **not** pick up a Secret change on its own. It needs an explicit `kubectl rollout restart`.
 
 **Fix (now handled proactively):** `create_secret_with_key()` now checks `pvc_exists()` before trusting any password source - reused-from-Compose or freshly typed - and offers the same three options as #8: keep the known password, reset it in place via `kubectl exec deploy/<db> -- psql -U postgres -c "ALTER USER ..."` (works without knowing the old one, since `kubectl exec` reaches the Pod directly rather than over the network), or delete just that app's database Deployment + PVC and start over. All three paths finish with a `kubectl rollout restart` of the *application* Deployment, so it always ends up with a fresh Pod referencing the current Secret value - never a stale one baked in from before.
+
+## 10. Keel never triggers an update when every build is tagged `:latest`
+
+**Symptom:** Keel's logs show its poll job running on schedule (`trigger.poll.RepositoryWatcher: new watch repository tags job added`), with no RBAC or auth errors, but it never actually updates the Deployment even long after a new image was pushed. With `DEBUG=true` set (`kubectl set env deployment/keel -n keel DEBUG=true`), the real reason becomes visible:
+```
+level=debug msg="registry.tags url=https://ghcr.io/v2/.../tags/list"
+level=debug msg="trigger.poll.WatchRepositoryTagsJob: checking tags" current_tag=latest repository_tags="[latest]"
+level=debug msg="trigger.poll.WatchRepositoryTagsJob: events: []"
+```
+
+**Cause:** this trigger job compares the repository's **list of tag names**, not image digests. Since every build in this project only ever pushed a single tag (`latest`), the tag list Keel sees never changes - `["latest"]` today looks identical to `["latest"]` next week, even though the image *behind* that tag is completely different. Keel has no way to detect "the same name now points somewhere else" through this code path, regardless of the `keel.sh/policy` annotation.
+
+**Fix:** switch to a real versioning scheme instead of relying on `:latest` for change detection. Each app's CI workflow now also pushes a monotonically increasing tag alongside `latest`, using GitHub Actions' own build counter:
+```yaml
+tags: |
+  type=raw,value=latest
+  type=raw,value=v0.0.${{ github.run_number }}
+```
+The `terraform-gcp` Deployments were switched from `image = "...:latest"` to `image = "...:${var.echoo_backend_tag}"` (etc.), bootstrapped with whatever the current real tag is, and the Keel annotation changed from `keel.sh/policy: force` to `keel.sh/policy: minor` - a real semver-style policy that compares version *numbers*, not tag name lists, so it correctly detects that `v0.0.10` is newer than `v0.0.9`. The one-time bootstrap tag only matters for the very first `terraform apply`; every build after that is picked up by Keel on its own.
+
+## 11. Keel logs are full of `forbidden` errors for StatefulSets/DaemonSets/CronJobs
+
+**Symptom:** constant `reflector.go` warnings and `Unhandled Error` entries in the Keel logs, e.g. `statefulsets.apps is forbidden: User "system:serviceaccount:keel:keel" cannot list resource "statefulsets"`.
+
+**Cause:** Keel's Kubernetes provider always watches every workload type it knows about (Deployments, StatefulSets, DaemonSets, CronJobs) regardless of whether the cluster actually has any - it doesn't check first. The `ClusterRole` in `auto-deploy.tf` only granted access to Deployments (the only workload type this project uses), so the other three watchers fail on every list/watch attempt.
+
+**Fix:** added read-only (`get`, `list`, `watch`) rules for `statefulsets`/`daemonsets` (API group `apps`) and `cronjobs` (API group `batch`) to the `keel` ClusterRole. This doesn't change Keel's actual behavior (there's nothing of those types to update), it just stops the log spam - the Deployment-watching path this project actually relies on already had full permissions and was unaffected either way.
+## 12. GCP VM never finishes installing k3s - `fetch_kubeconfig` times out after ~10 minutes
+
+**Symptom:** `terraform apply -target=google_compute_instance.k3s -target=null_resource.fetch_kubeconfig` hangs on `null_resource.fetch_kubeconfig: Still creating...` for far longer than the "a few minutes" the script expects, and eventually fails with `Timed out waiting for k3s to become ready on the VM.` SSHing into the VM manually and checking `sudo journalctl -u google-startup-scripts.service` shows:
+```
+Script "startup-script" failed with error: exit status 127
+```
+
+**Cause:** exit status 127 means "command not found". The minimal Debian 12 cloud image doesn't reliably have `curl` available yet at the point the startup script runs (very early in boot) - so the script's first line, `curl -sfL https://get.k3s.io | sh -s -...`, fails before k3s is ever touched. `curl` does show up on the VM shortly after (some background process installs it later), which is what made this confusing to diagnose - checking `which curl` well after boot shows it present, hiding that it wasn't there at the critical moment.
+
+**Fix applied then (one-off, on the already-running VM):** SSH in and run the two startup-script lines manually once `curl` was confirmed present.
+
+**Fix applied now (permanent, for any future VM):** `vm.tf`'s `metadata_startup_script` now runs `apt-get update -y && apt-get install -y curl` before ever calling `curl`, so this can no longer race.
+
+## 13. Terraform can create the namespaces/Secrets, but every `kubernetes_*` resource fails with a TLS certificate error
+
+**Symptom:**
+```
+Error: Post "https://<VM_PUBLIC_IP>:6443/api/v1/namespaces": tls: failed to verify certificate:
+x509: certificate is valid for 10.186.0.2, 10.43.0.1, 127.0.0.1, ::1, not <VM_PUBLIC_IP>
+```
+
+**Cause:** k3s auto-generates its API server's TLS certificate at install time, and only includes the addresses it can see about itself: its internal VM IP, the cluster service IP, and loopback. It has no way to know its own public IP - that only exists as a NAT mapping on Google's side, not as an address actually bound to the VM's own network interface. `kubeconfig.tf` fetches the kubeconfig and rewrites it to point at the public IP (since that's the only address reachable from outside the VM) - but the certificate itself still doesn't list that IP as valid, so TLS verification fails the moment Terraform's Kubernetes provider tries to use it.
+
+**Fix applied then (one-off, on the already-running VM):** SSH in, write `/etc/rancher/k3s/config.yaml` with a `tls-san` entry for the VM's public IP, then `sudo systemctl restart k3s` to regenerate the certificate - followed by re-fetching the kubeconfig from the Windows machine, since the old cached copy still referenced the old certificate.
+
+**Fix applied now (permanent, for any future VM):** `vm.tf`'s startup script asks the GCE metadata server for the VM's own public IP (`http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip`) and passes it straight to the k3s installer via `INSTALL_K3S_EXEC="server --tls-san $EXTERNAL_IP"`, so the certificate is correct from the very first boot - no manual restart step needed.
+
+## 14. Echoo registration/WebSocket fails with a network error even after the port fix - CORS rejects the public IP
+
+**Symptom:** after fixing the frontend's wrong backend port (see #10's sibling issue, the `api.ts` port-mapping bug - not itself a `cloud-lab` bug, it's in the Echoo app repo), the browser console still shows `WebSocket connection ... failed` and/or a network error on `POST /auth/register`, now correctly pointed at the right port.
+
+**Cause:** Echoo's backend (`backend/config/cors.ts`) uses a custom origin-matching function that only allows `localhost`/`127.0.0.1` and private (RFC 1918) network ranges (`10.x`, `172.16-31.x`, `192.168.x`). A public GCP VM's IP is a real internet-routable address, not a private one - it matches none of these, so every cross-origin request (including the WebSocket handshake's initial HTTP request) gets rejected by AdonisJS's CORS middleware before it reaches the actual route handler.
+
+**Fix:** `cors.ts` now also accepts an explicit `ALLOWED_ORIGINS` environment variable (comma-separated exact origins), checked before the private-network heuristics. `terraform-gcp/echoo.tf` sets this to the VM's own public IP on port 8111 (Echoo's frontend port) via `google_compute_instance.k3s.network_interface[0].access_config[0].nat_ip`, the same pattern already used for Violet-board's `APP_URL`. Compose and local Kubernetes/Terraform are unaffected - `localhost` and typical LAN IPs already pass the existing private-network checks.
+
+**Note:** like the port-mapping bug, this fix lives in the Echoo app repo (`backend/config/cors.ts`), not in this infrastructure repo - only the `ALLOWED_ORIGINS` value being *passed in* is `cloud-lab`'s responsibility.
+
+## 15. `terraform plan` wants to downgrade an image Keel already auto-updated
+
+**Symptom:** after Keel successfully rolls a Deployment to a newer version tag on its own, the next `terraform plan`/`apply` shows that image field as changing *backwards* - e.g. `echoo-backend:v0.0.10 -> echoo-backend:v0.0.9` - threatening to undo Keel's work.
+
+**Cause:** this is an inherent tension in mixing Terraform (which enforces a fixed, declared state) with an external operator that mutates the same field continuously (Keel). The `echoo_backend_tag` etc. variables in `variables.tf` only ever represented the *bootstrap* tag for the very first apply - Terraform has no way to know Keel has since moved the live Deployment beyond that value, so it treats the older, declared tag as the desired state and plans to restore it.
+
+**Fix (permanent):** each of the 4 application `kubernetes_deployment_v1` resources now has a `lifecycle` block:
+```hcl
+lifecycle {
+  ignore_changes = [spec[0].template[0].spec[0].container[0].image]
+}
+```
+This tells Terraform to never diff or touch that specific field once the resource exists - ownership of the image tag is handed off to Keel permanently after the first apply. The `*_tag` variables now only matter for that first bootstrap; every apply after that (for env vars, Services, RBAC, anything else) leaves whatever image Keel has since rolled out completely untouched, no matter how out of date the variable default becomes.
+
+**Before this fix was in place:** the workaround was to check what's actually running and manually update the tag variables to match before every apply:
+```bash
+kubectl get pods -n echoo -o custom-columns=NAME:.metadata.name,IMAGE:.spec.containers[0].image
+```
+This is no longer necessary, but the underlying lesson is worth keeping in mind for any future resource where two systems (Terraform and an operator/controller) might manage the same field: decide upfront which one owns it, and use `ignore_changes` (or an equivalent mechanism) to make that explicit rather than discovering the conflict via a plan that wants to move a version backwards.

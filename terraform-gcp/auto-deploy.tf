@@ -6,16 +6,16 @@
 #
 # This GCP deployment is the one place where that becomes fully automatic.
 # We use Keel (https://keel.sh), a small Kubernetes-native operator that
-# polls a registry on a schedule and rolls a Deployment when the digest
-# behind an unchanged `:latest` tag has changed. It needs no changes to the
-# application repos' own GitHub Actions workflows - GHCR is simply polled.
+# polls a registry on a schedule and rolls a Deployment when a newer
+# version tag appears. It needs no changes to the application repos' own
+# GitHub Actions workflows beyond pushing a real version tag - GHCR is
+# simply polled from here.
 #
 # Only the 4 application Deployments (violetboard-app, violetboard-web,
 # echoo-backend, echoo-frontend) are annotated for this - see the
 # `keel.sh/policy` annotations added to their `kubernetes_deployment_v1`
 # resources in violetboard.tf and echoo.tf. The two Postgres Deployments are
-# pinned to `postgres:15-alpine`, not `:latest`, so they're intentionally
-# left out.
+# pinned to `postgres:15-alpine`, so they're intentionally left out.
 
 resource "kubernetes_namespace" "keel" {
   metadata {
@@ -42,6 +42,23 @@ resource "kubernetes_cluster_role_v1" "keel" {
     api_groups = ["apps", "extensions"]
     resources  = ["deployments"]
     verbs      = ["get", "list", "watch", "update", "patch"]
+  }
+
+  # Keel's informers watch these workload types by default regardless of
+  # whether the cluster actually has any - without read access here, it
+  # logs constant "forbidden" errors trying to list them. This project only
+  # has Deployments (see the rule above for the actual update permissions),
+  # so these are read-only. See TROUBLESHOOTING.md #11.
+  rule {
+    api_groups = ["apps"]
+    resources  = ["statefulsets", "daemonsets"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = ["batch"]
+    resources  = ["cronjobs"]
+    verbs      = ["get", "list", "watch"]
   }
 
   rule {

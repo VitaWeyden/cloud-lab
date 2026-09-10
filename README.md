@@ -171,7 +171,7 @@ cloud-lab/
 ├── terraform/                      # Local k3d infrastructure as code
 │   └── README.md
 │
-├── terraform-gcp/                  # Google Cloud deployment (independent, in progress)
+├── terraform-gcp/                  # Google Cloud deployment (independent, fully deployed and verified)
 │   └── README.md
 │
 ├── TROUBLESHOOTING.md              # Issues, causes, and fixes

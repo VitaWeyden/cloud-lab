@@ -195,3 +195,13 @@ This tells Terraform to never diff or touch that specific field once the resourc
 kubectl get pods -n echoo -o custom-columns=NAME:.metadata.name,IMAGE:.spec.containers[0].image
 ```
 This is no longer necessary, but the underlying lesson is worth keeping in mind for any future resource where two systems (Terraform and an operator/controller) might manage the same field: decide upfront which one owns it, and use `ignore_changes` (or an equivalent mechanism) to make that explicit rather than discovering the conflict via a plan that wants to move a version backwards.
+
+## 16. Registration works but the WebSocket still fails with a "network error" after fixing CORS
+
+**Symptom:** after fixing the AdonisJS HTTP CORS whitelist (#14) to accept the public VM IP, REST calls (`POST /auth/register`) start working, but the browser console still shows `WebSocket connection ... failed` and `[SOCKET] Connection error: websocket error` for the exact same origin.
+
+**Cause:** Socket.IO maintains its own, completely separate CORS check from AdonisJS's HTTP middleware - it's configured directly where the Socket.IO server is created (`backend/app/services/ws.ts`), not in `config/cors.ts`. This project had two independent copies of the same origin-whitelist logic (localhost + RFC 1918 private ranges only) - fixing one doesn't touch the other, since they're unrelated code paths that happen to implement the same idea.
+
+**Fix:** `ws.ts` now reads the same `ALLOWED_ORIGINS` environment variable as `cors.ts`, checked before the private-network heuristics - the exact same mechanism, just duplicated into the second location that needed it. No changes to `terraform-gcp/echoo.tf` were needed, since `ALLOWED_ORIGINS` was already being passed to the container - this was purely an app-repo fix that had to be picked up by a new build.
+
+**Lesson:** when an app has more than one server (HTTP + a separate realtime layer like Socket.IO, gRPC, etc.), don't assume a single CORS fix covers all of them - grep for any other place `cors` or `origin` checks appear before declaring a network-boundary issue solved.

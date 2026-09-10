@@ -4,14 +4,12 @@
 
 project_id = "your-gcp-project-id-here"
 
-# Optional - only needed the first time you apply, or if you ever need to
-# manually pin a specific version again. After the first apply, Keel tracks
-# and applies newer v0.0.X tags on its own - see the "Automatic redeployment"
-# section below. Check each image's current tag at:
-#   https://github.com/VitaWeyden/Echoo/pkgs/container/echoo-backend
-#   https://github.com/VitaWeyden/Echoo/pkgs/container/echoo-frontend
-#   https://github.com/VitaWeyden/Violet-board/pkgs/container/violet-board-app
-#   https://github.com/VitaWeyden/Violet-board/pkgs/container/violet-board-web
+# Optional - these are fallback values, only used if latest-tags.tf's live
+# GHCR lookup ever fails (e.g. no versioned tag has been published yet).
+# Normally you never need to touch these: latest-tags.tf queries GHCR
+# directly on every apply and bootstraps onto whatever is actually newest,
+# and Keel takes over tracking further updates after that - see the
+# "Automatic redeployment" section in README.md.
 #
 # echoo_backend_tag     = "v0.0.9"
 # echoo_frontend_tag    = "v0.0.9"

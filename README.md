@@ -169,10 +169,34 @@ cloud-lab/
 │           └── node-exporter.json
 │
 ├── terraform/                      # Local k3d infrastructure as code
-│   └── README.md
+│   ├── README.md
+│   ├── cluster.tf                  # Creates the k3d cluster itself
+│   ├── providers.tf
+│   ├── versions.tf
+│   ├── namespaces.tf
+│   ├── secrets.tf
+│   ├── violetboard.tf
+│   ├── echoo.tf
+│   ├── monitoring.tf
+│   └── outputs.tf
 │
 ├── terraform-gcp/                  # Google Cloud deployment (independent, fully deployed and verified)
-│   └── README.md
+│   ├── README.md
+│   ├── vm.tf                       # The GCE VM + its k3s install script
+│   ├── network.tf                  # Firewall rules
+│   ├── kubeconfig.tf               # Fetches the kubeconfig once k3s is ready
+│   ├── providers.tf
+│   ├── versions.tf
+│   ├── variables.tf
+│   ├── terraform.tfvars.example
+│   ├── namespaces.tf
+│   ├── secrets.tf
+│   ├── violetboard.tf
+│   ├── echoo.tf
+│   ├── monitoring.tf
+│   ├── auto-deploy.tf              # Installs Keel for automatic redeployment
+│   ├── latest-tags.tf              # Dynamic "current latest version" GHCR lookup
+│   └── outputs.tf
 │
 ├── TROUBLESHOOTING.md              # Issues, causes, and fixes
 └── README.md
